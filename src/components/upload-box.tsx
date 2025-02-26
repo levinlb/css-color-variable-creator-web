@@ -1,6 +1,6 @@
 'use client'
 
-import { CssProcessingResult } from '@/lib/actions'
+import { CssProcessingResult } from '@/lib/types'
 import { CloudUploadIcon } from 'lucide-react'
 import { useRef, useState } from 'react'
 import ColorResults from './color-results'
