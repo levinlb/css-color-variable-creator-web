@@ -1,6 +1,7 @@
 'use client'
 
-import { CssProcessingResult, processCssFile } from '@/lib/actions'
+import { processCssFile } from '@/lib/actions'
+import { CssProcessingResult } from '@/lib/types'
 import { Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 

@@ -1,6 +1,6 @@
+import { type ColorInfo } from '@/lib/types'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { type ColorInfo } from './actions'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
