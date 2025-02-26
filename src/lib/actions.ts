@@ -1,31 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { ColorInfo, CssProcessingResult, ProcessedFile } from './types'
 import { generateModifiedCss } from './utils'
-
-export type ColorInfo = {
-	original: string
-	variable?: string
-	isExisting: boolean
-	value: string
-	occurrences: number
-}
-
-export type CssProcessingResult = {
-	success?: boolean
-	fileName?: string
-	fileSize?: number
-	colors?: Record<string, ColorInfo>
-	error?: string
-	generatedCss?: string
-	originalCss?: string
-	modifiedCss?: string
-}
 
 /**
  * Extract color values from CSS content
  */
-function extractColors(cssContent: string): Record<string, ColorInfo> {
+function extractColors(cssContent: string, fileId: string): Record<string, ColorInfo> {
 	const colors: Record<string, ColorInfo> = {}
 
 	const variableRegex = /--([a-zA-Z0-9-_]+):\s*(#[a-fA-F0-9]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/g
@@ -41,6 +23,7 @@ function extractColors(cssContent: string): Record<string, ColorInfo> {
 			isExisting: true,
 			value: colorValue,
 			occurrences: 1,
+			fileId,
 		}
 	}
 
@@ -57,6 +40,8 @@ function extractColors(cssContent: string): Record<string, ColorInfo> {
 				isExisting: false,
 				value: colorValue,
 				occurrences: 1,
+				fileId,
+				variable: '',
 			}
 		}
 	}
@@ -68,7 +53,7 @@ function extractColors(cssContent: string): Record<string, ColorInfo> {
 				Object.values(colors)
 					.filter((c) => !c.isExisting)
 					.indexOf(color) + 1
-			color.variable = `--color-${index}`
+			color.variable = `--color-${fileId}-${index}`
 		}
 	})
 
@@ -92,56 +77,98 @@ function generateCssWithVariables(colors: Record<string, ColorInfo>): string {
 }
 
 /**
- * Process a CSS/SCSS file to extract color variables
+ * Process multiple CSS/SCSS files to extract color variables
  */
-export async function processCssFile(input: FormData | string): Promise<CssProcessingResult> {
+export async function processCssFiles(files: File[]): Promise<CssProcessingResult> {
 	try {
-		console.log('Processing CSS content...')
+		console.log(`Processing ${files.length} CSS files...`)
 
-		let fileContent: string
-		let fileName: string = 'style.css'
-		let fileSize: number = 0
+		const processedFiles: ProcessedFile[] = []
+		const allColors: Record<string, ColorInfo> = {}
 
-		if (typeof input === 'string') {
-			fileContent = input
-			fileSize = new Blob([fileContent]).size
-			console.log(`String content received, length: ${fileContent.length}`)
-		} else {
-			const file = input.get('file') as File
+		for (const file of files) {
+			const fileId = Math.random().toString(36).substring(2, 9)
+			const fileContent = await file.text()
 
-			if (!file) {
-				console.log('No file provided')
-				return { error: 'No file provided' }
-			}
+			const colors = extractColors(fileContent, fileId)
+			const modifiedCss = generateModifiedCss(fileContent, colors)
 
-			fileName = file.name
-			fileSize = file.size
-			console.log(`File received: ${fileName}, size: ${fileSize}`)
+			// Merge colors into allColors
+			Object.values(colors).forEach((color) => {
+				const key = `${color.value}-${color.fileId}`
+				if (allColors[key]) {
+					allColors[key].occurrences += color.occurrences
+				} else {
+					allColors[key] = { ...color }
+				}
+			})
 
-			fileContent = await file.text()
-			console.log(`File content length: ${fileContent.length}`)
+			processedFiles.push({
+				id: fileId,
+				name: file.name,
+				size: file.size,
+				colors,
+				originalCss: fileContent,
+				modifiedCss,
+			})
 		}
 
-		const colors = extractColors(fileContent)
-		console.log(`Colors extracted: ${Object.keys(colors).length}`)
-
-		const generatedCss = generateCssWithVariables(colors)
-
-		const modifiedCss = generateModifiedCss(fileContent, colors)
-		console.log('Generated modified CSS with variables')
+		const combinedVariablesCss = generateCssWithVariables(allColors)
 
 		revalidatePath('/')
 		return {
 			success: true,
-			fileName,
-			fileSize,
-			colors,
-			generatedCss,
-			originalCss: fileContent,
-			modifiedCss,
+			files: processedFiles,
+			combinedVariablesCss,
+		}
+	} catch (error) {
+		console.error('Error processing CSS files:', error)
+		return { error: 'Failed to process files', files: [] }
+	}
+}
+
+// Legacy support for single file processing
+export async function processCssFile(input: FormData | string): Promise<CssProcessingResult> {
+	try {
+		let fileContent: string
+		let fileName: string = 'style.css'
+		let fileSize: number = 0
+		const fileId = Math.random().toString(36).substring(2, 9)
+
+		if (typeof input === 'string') {
+			fileContent = input
+			fileSize = new Blob([fileContent]).size
+		} else {
+			const file = input.get('file') as File
+			if (!file) {
+				return { error: 'No file provided', files: [] }
+			}
+			fileName = file.name
+			fileSize = file.size
+			fileContent = await file.text()
+		}
+
+		const colors = extractColors(fileContent, fileId)
+		const modifiedCss = generateModifiedCss(fileContent, colors)
+		const combinedVariablesCss = generateCssWithVariables(colors)
+
+		revalidatePath('/')
+		return {
+			success: true,
+			files: [
+				{
+					id: fileId,
+					name: fileName,
+					size: fileSize,
+					colors,
+					originalCss: fileContent,
+					modifiedCss,
+				},
+			],
+			combinedVariablesCss,
 		}
 	} catch (error) {
 		console.error('Error processing CSS file:', error)
-		return { error: 'Failed to process file' }
+		return { error: 'Failed to process file', files: [] }
 	}
 }
