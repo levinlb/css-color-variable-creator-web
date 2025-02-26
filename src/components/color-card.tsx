@@ -1,11 +1,15 @@
 'use client'
 
 import { hexToRgba, rgbaToHex } from '@/lib/utils'
-import { Edit2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
+import { Check, Edit2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { HexColorPicker } from 'react-colorful'
+import { useDebouncedCallback } from 'use-debounce'
+import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
+
 type ColorCardProps = {
 	color: {
 		original: string
@@ -22,10 +26,32 @@ export default function ColorCard({ color, onVariableChange, onColorChange }: Co
 	const [isEditing, setIsEditing] = useState(false)
 	const [tempVariable, setTempVariable] = useState(color.variable)
 	const [showPicker, setShowPicker] = useState(false)
-	const [pickerValue, setPickerValue] = useState(() => {
-		return color.value.startsWith('rgba') ? rgbaToHex(color.value) : color.value
-	})
+	const [localColor, setLocalColor] = useState(color.value)
 	const pickerRef = useRef<HTMLDivElement>(null)
+
+	// Convert RGBA to HEX for the color picker
+	const currentPickerValue = useMemo(() => {
+		return localColor.startsWith('rgba') ? rgbaToHex(localColor) : localColor
+	}, [localColor])
+
+	// Update local color when prop changes
+	useEffect(() => {
+		setLocalColor(color.value)
+	}, [color.value])
+
+	const handleColorChange = (newColor: string) => {
+		let previewColor = newColor
+		if (color.value.startsWith('rgba')) {
+			const alpha = color.value.match(/rgba\([^)]+,\s*([^)]+)\)/)?.[1] || '1'
+			previewColor = hexToRgba(newColor, parseFloat(alpha))
+		}
+		setLocalColor(previewColor)
+		debouncedUpdateColor(previewColor)
+	}
+
+	const debouncedUpdateColor = useDebouncedCallback((finalColor: string) => {
+		onColorChange(color.original, finalColor)
+	}, 300)
 
 	const getColorFormat = () => {
 		if (color.value.startsWith('#')) {
@@ -54,13 +80,17 @@ export default function ColorCard({ color, onVariableChange, onColorChange }: Co
 		}
 	}, [])
 
+	// Reset temp variable when color variable changes
+	useEffect(() => {
+		setTempVariable(color.variable)
+	}, [color.variable])
+
 	const handleEdit = () => {
 		setIsEditing(true)
 	}
 
 	const handleSave = () => {
 		const formattedVariable = tempVariable.startsWith('--') ? tempVariable : `--${tempVariable}`
-
 		onVariableChange(color.original, formattedVariable)
 		setIsEditing(false)
 	}
@@ -69,38 +99,28 @@ export default function ColorCard({ color, onVariableChange, onColorChange }: Co
 		setShowPicker((prev) => !prev)
 	}
 
-	const handleColorChange = (newColor: string) => {
-		setPickerValue(newColor)
-
-		let finalColor = newColor
-		if (color.value.startsWith('rgba')) {
-			const alpha = color.value.match(/rgba\([^)]+,\s*([^)]+)\)/)?.[1] || '1'
-			finalColor = hexToRgba(newColor, parseFloat(alpha))
-		}
-
-		onColorChange(color.original, finalColor)
-	}
-
 	return (
-		<div className="p-4 border rounded-md bg-white hover:bg-gray-50 shadow-sm">
+		<div className="p-4 border rounded-xl backdrop-blur-sm bg-white/60 hover:bg-white/80 transition-colors">
 			<div className="flex flex-col sm:flex-row gap-4">
 				<div className="flex-shrink-0">
-					<div
-						className="w-16 h-16 rounded-md border border-gray-200 cursor-pointer relative shadow-sm"
-						style={{ backgroundColor: color.value }}
+					<motion.div
+						whileHover={{ scale: 1.05 }}
+						whileTap={{ scale: 0.95 }}
+						className="w-16 h-16 rounded-lg border shadow-sm cursor-pointer relative overflow-hidden"
+						style={{ backgroundColor: localColor }}
 						onClick={handleColorClick}
 					>
-						<span className="absolute -top-2 -right-2 bg-white text-xs px-2 py-0.5 rounded-full border shadow-sm">
+						<Badge variant="secondary" className="absolute -top-1 -right-1 shadow-sm">
 							{getColorFormat()}
-						</span>
-					</div>
+						</Badge>
+					</motion.div>
 				</div>
 
 				{/* Variable name and value */}
-				<div className="flex-1 min-w-0 flex flex-col justify-center">
-					<div className="mb-2">
+				<div className="flex-1 min-w-0 flex flex-col justify-center gap-2">
+					<div>
 						{isEditing ? (
-							<div className="flex">
+							<div className="flex gap-2">
 								<Input
 									type="text"
 									value={tempVariable}
@@ -108,67 +128,71 @@ export default function ColorCard({ color, onVariableChange, onColorChange }: Co
 									onBlur={handleSave}
 									onKeyDown={(e) => e.key === 'Enter' && handleSave()}
 									autoFocus
+									className="font-mono"
 								/>
-								<Button onClick={handleSave} className=" text-white px-3 rounded-sm">
-									Save
+								<Button size="icon" onClick={handleSave} variant="outline">
+									<Check className="h-4 w-4" />
+								</Button>
+								<Button size="icon" onClick={() => setIsEditing(false)} variant="outline">
+									<X className="h-4 w-4" />
 								</Button>
 							</div>
 						) : (
-							<div className="flex items-center justify-between">
-								<code className="text-sm font-mono px-2 py-1 bg-gray-100 rounded truncate max-w-[220px] mr-2">
+							<div className="flex items-center justify-between gap-2">
+								<code className="px-2 py-1.5 bg-background rounded-md font-mono text-sm truncate flex-1">
 									{color.variable}
 								</code>
-								<button
-									onClick={handleEdit}
-									className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
-								>
-									<Edit2 className="w-4 h-4" />
-								</button>
+								<Button size="icon" variant="ghost" onClick={handleEdit} className="flex-shrink-0">
+									<Edit2 className="h-4 w-4" />
+								</Button>
 							</div>
 						)}
 					</div>
 
-					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-500 gap-1">
-						<span className="truncate max-w-[280px] font-mono px-2 py-1 bg-gray-50 rounded">
-							{color.value}
-						</span>
-						<span className="bg-gray-100 px-2 py-1 rounded-md text-gray-600 text-xs">
+					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+						<code className="px-2 py-1.5 bg-background/50 rounded-md font-mono text-sm text-muted-foreground truncate">
+							{localColor}
+						</code>
+						<Badge variant="secondary" className="sm:flex-shrink-0">
 							{color.occurrences} {color.occurrences === 1 ? 'use' : 'uses'}
-						</span>
+						</Badge>
 					</div>
 				</div>
 			</div>
 
 			{/* Color picker */}
 			{showPicker && (
-				<div className="relative mt-4 pt-4 border-t">
+				<motion.div
+					key={color.original}
+					initial={{ opacity: 0, y: -10 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0, y: -10 }}
+					className="relative mt-4 pt-4 border-t"
+				>
 					<div className="absolute right-0 top-2">
-						<button
-							onClick={() => setShowPicker(false)}
-							className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded"
-						>
+						<Button variant="outline" size="sm" onClick={() => setShowPicker(false)}>
 							Close
-						</button>
+						</Button>
 					</div>
 
 					<div ref={pickerRef} className="mt-2">
 						<HexColorPicker
-							color={pickerValue}
+							color={currentPickerValue}
 							onChange={handleColorChange}
 							className="mb-3 mx-auto"
 						/>
 
 						<div className="flex justify-between items-center mt-3">
 							<div className="text-sm font-medium">Preview:</div>
-							<div className="text-sm font-mono">{pickerValue}</div>
+							<code className="text-sm font-mono">{currentPickerValue}</code>
 						</div>
 
 						<div
-							className="w-full h-8 rounded mt-1 border"
-							style={{ backgroundColor: pickerValue }}
-						></div>
+							className="w-full h-8 rounded-lg mt-1 border shadow-sm"
+							style={{ backgroundColor: localColor }}
+						/>
 					</div>
-				</div>
+				</motion.div>
 			)}
 		</div>
 	)

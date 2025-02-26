@@ -2,6 +2,7 @@
 
 import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
+import { Button } from './ui/button'
 
 type CssPreviewProps = {
 	cssCode: string
@@ -33,23 +34,21 @@ export default function CssPreview({
 	}
 
 	return (
-		<div className="border rounded-md p-4">
-			<div className="flex justify-between items-center mb-2">
+		<div className="border rounded-xl p-4 backdrop-blur-sm bg-white/60">
+			<div className="flex justify-between items-center mb-3">
 				<h3 className="font-medium">{title}</h3>
-				<button
+				<Button
+					variant={highlightButton ? 'default' : 'outline'}
+					size="sm"
 					onClick={handleCopy}
-					className={`${
-						highlightButton
-							? 'bg-blue-500 text-white hover:bg-blue-600'
-							: 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-					} px-2 py-1 rounded flex items-center gap-1 text-sm transition-colors`}
+					className="gap-1"
 				>
 					{isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
 					{isCopied ? 'Copied!' : 'Copy'}
-				</button>
+				</Button>
 			</div>
 
-			<pre className="bg-gray-50 p-3 rounded-md text-sm overflow-x-auto whitespace-pre-wrap max-h-[500px] overflow-y-auto">
+			<pre className="bg-background/50 p-4 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap max-h-[500px] overflow-y-auto border font-mono">
 				{cssCode}
 			</pre>
 		</div>

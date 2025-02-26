@@ -1,21 +1,24 @@
-import { CssProcessingResult } from '@/lib/actions'
+import { type ColorInfo, type CssProcessingResult } from '@/lib/types'
 
 export default function ColorResults({ result }: { result: CssProcessingResult }) {
-	if (!result.colors || Object.keys(result.colors).length === 0) {
-		return <p>No colors found in the file.</p>
+	if (!result.files || result.files.length === 0) {
+		return <p>No files processed.</p>
 	}
+
+	const file = result.files[0] // Display first file for now
+	const colors = file.colors
 
 	return (
 		<div className="space-y-4">
-			<h2 className="text-xl font-semibold">Colors Found in {result.fileName}</h2>
+			<h2 className="text-xl font-semibold">Colors Found in {file.name}</h2>
 
 			<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 				<div className="border rounded-md p-4">
 					<h3 className="font-medium mb-2">Existing Color Variables</h3>
 					<div className="space-y-2">
-						{Object.values(result.colors)
-							.filter((color) => color.isExisting)
-							.map((color, index) => (
+						{Object.values(colors)
+							.filter((color: ColorInfo) => color.isExisting)
+							.map((color: ColorInfo, index) => (
 								<div key={index} className="flex items-center gap-2">
 									<div
 										className="w-6 h-6 rounded-md border"
@@ -28,7 +31,7 @@ export default function ColorResults({ result }: { result: CssProcessingResult }
 									</span>
 								</div>
 							))}
-						{Object.values(result.colors).filter((color) => color.isExisting).length === 0 && (
+						{Object.values(colors).filter((color: ColorInfo) => color.isExisting).length === 0 && (
 							<p className="text-sm text-gray-500">No existing color variables found.</p>
 						)}
 					</div>
@@ -37,9 +40,9 @@ export default function ColorResults({ result }: { result: CssProcessingResult }
 				<div className="border rounded-md p-4">
 					<h3 className="font-medium mb-2">Generated Color Variables</h3>
 					<div className="space-y-2">
-						{Object.values(result.colors)
-							.filter((color) => !color.isExisting)
-							.map((color, index) => (
+						{Object.values(colors)
+							.filter((color: ColorInfo) => !color.isExisting)
+							.map((color: ColorInfo, index) => (
 								<div key={index} className="flex items-center gap-2">
 									<div
 										className="w-6 h-6 rounded-md border"
@@ -52,7 +55,7 @@ export default function ColorResults({ result }: { result: CssProcessingResult }
 									</span>
 								</div>
 							))}
-						{Object.values(result.colors).filter((color) => !color.isExisting).length === 0 && (
+						{Object.values(colors).filter((color: ColorInfo) => !color.isExisting).length === 0 && (
 							<p className="text-sm text-gray-500">No colors without variables found.</p>
 						)}
 					</div>
@@ -64,7 +67,7 @@ export default function ColorResults({ result }: { result: CssProcessingResult }
 				<div className="flex justify-end mb-2">
 					<button
 						onClick={() => {
-							navigator.clipboard.writeText(result.generatedCss || '')
+							navigator.clipboard.writeText(result.combinedVariablesCss || '')
 						}}
 						className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
 					>
@@ -72,10 +75,10 @@ export default function ColorResults({ result }: { result: CssProcessingResult }
 					</button>
 				</div>
 				<pre className="bg-gray-50 p-3 rounded-md text-sm overflow-x-auto">
-					{result.generatedCss ||
+					{result.combinedVariablesCss ||
 						`:root {
-${Object.values(result.colors)
-	.map((color) => `  ${color.variable}: ${color.value};`)
+${Object.values(colors)
+	.map((color: ColorInfo) => `  ${color.variable}: ${color.value};`)
 	.join('\n')}
 }`}
 				</pre>
