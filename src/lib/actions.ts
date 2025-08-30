@@ -5,9 +5,9 @@ import type { ColorInfo, CssProcessingResult, ProcessedFile } from "./types";
 import { generateModifiedCss } from "./utils";
 
 /**
- * Extract color values from CSS content
+ * Extract colors without generating variable names - for global processing
  */
-function extractColors(
+function extractColorsWithoutVariableGeneration(
 	cssContent: string,
 	fileId: string,
 ): Record<string, ColorInfo> {
@@ -48,32 +48,11 @@ function extractColors(
 				value: colorValue,
 				occurrences: 1,
 				fileId,
-				variable: "",
+				variable: "", // Will be assigned globally later
 			};
 		}
 		match = colorRegex.exec(cssContent);
 	}
-
-	// Generate semantic variable names for colors without existing variables
-	const existingVariables = new Set<string>();
-
-	// First, collect all existing variable names
-	Object.values(colors).forEach((color) => {
-		if (color.isExisting && color.variable) {
-			existingVariables.add(color.variable);
-		}
-	});
-
-	// Then generate semantic names for colors without variables
-	Object.keys(colors).forEach((key) => {
-		const color = colors[key];
-		if (!color.isExisting) {
-			color.variable = generateSemanticVariableName(
-				color.value,
-				existingVariables,
-			);
-		}
-	});
 
 	return colors;
 }
@@ -154,49 +133,60 @@ export async function processCssFiles(
 		console.log(`Processing ${files.length} CSS files...`);
 
 		const processedFiles: ProcessedFile[] = [];
-		const allColors: Record<string, ColorInfo> = {};
+		const globalColorRegistry: Record<string, ColorInfo> = {};
+		const existingGlobalVariables = new Set<string>();
+
+		// First pass: collect all colors and existing variables across all files
+		const tempFileData: Array<{
+			id: string;
+			name: string;
+			size: number;
+			content: string;
+			colors: Record<string, ColorInfo>;
+		}> = [];
 
 		for (const file of files) {
 			const fileId = Math.random().toString(36).substring(2, 9);
 			const fileContent = await file.text();
+			const colors = extractColorsWithoutVariableGeneration(
+				fileContent,
+				fileId,
+			);
 
-			const colors = extractColors(fileContent, fileId);
-			const modifiedCss = generateModifiedCss(fileContent, colors);
-
-			Object.values(colors).forEach((color) => {
-				const key = color.value;
-				if (allColors[key]) {
-					allColors[key].occurrences += color.occurrences;
-					if (!allColors[key].variable && color.variable) {
-						allColors[key].variable = color.variable;
-					}
-				} else {
-					allColors[key] = { ...color };
-				}
-			});
-
-			processedFiles.push({
+			tempFileData.push({
 				id: fileId,
 				name: file.name,
 				size: file.size,
+				content: fileContent,
 				colors,
-				originalCss: fileContent,
-				modifiedCss,
+			});
+
+			// Collect existing variables first
+			Object.values(colors).forEach((color) => {
+				if (color.isExisting && color.variable) {
+					existingGlobalVariables.add(color.variable);
+				}
+			});
+
+			// Build global color registry
+			Object.values(colors).forEach((color) => {
+				const key = color.value;
+				if (globalColorRegistry[key]) {
+					// Merge occurrences and preserve existing variable if it exists
+					globalColorRegistry[key].occurrences += color.occurrences;
+					if (!globalColorRegistry[key].variable && color.variable) {
+						globalColorRegistry[key].variable = color.variable;
+					}
+				} else {
+					globalColorRegistry[key] = { ...color };
+				}
 			});
 		}
 
-		// Generate semantic variable names for the consolidated colors
-		const existingGlobalVariables = new Set<string>();
-
-		Object.values(allColors).forEach((color) => {
-			if (color.isExisting && color.variable) {
-				existingGlobalVariables.add(color.variable);
-			}
-		});
-
-		Object.keys(allColors).forEach((key) => {
-			const color = allColors[key];
-			if (!color.isExisting || !color.variable) {
+		// Second pass: assign global variable names to all colors
+		Object.keys(globalColorRegistry).forEach((colorValue) => {
+			const color = globalColorRegistry[colorValue];
+			if (!color.variable) {
 				color.variable = generateSemanticVariableName(
 					color.value,
 					existingGlobalVariables,
@@ -204,16 +194,33 @@ export async function processCssFiles(
 			}
 		});
 
-		processedFiles.forEach((file) => {
-			Object.keys(file.colors).forEach((colorValue) => {
-				if (allColors[colorValue]) {
-					file.colors[colorValue].variable = allColors[colorValue].variable;
+		// Third pass: create processed files with unified variable names
+		tempFileData.forEach((fileData) => {
+			// Update all colors in this file to use global variable names
+			const unifiedColors: Record<string, ColorInfo> = {};
+			Object.keys(fileData.colors).forEach((colorValue) => {
+				const globalColor = globalColorRegistry[colorValue];
+				if (globalColor) {
+					unifiedColors[colorValue] = {
+						...fileData.colors[colorValue],
+						variable: globalColor.variable, // Use the global variable name
+					};
 				}
 			});
-			file.modifiedCss = generateModifiedCss(file.originalCss, file.colors);
+
+			const modifiedCss = generateModifiedCss(fileData.content, unifiedColors);
+
+			processedFiles.push({
+				id: fileData.id,
+				name: fileData.name,
+				size: fileData.size,
+				colors: unifiedColors,
+				originalCss: fileData.content,
+				modifiedCss,
+			});
 		});
 
-		const combinedVariablesCss = generateCssWithVariables(allColors);
+		const combinedVariablesCss = generateCssWithVariables(globalColorRegistry);
 
 		revalidatePath("/");
 		return {
@@ -249,10 +256,9 @@ export async function processCssFile(
 			fileContent = await file.text();
 		}
 
-		const colors = extractColors(fileContent, fileId);
-		const modifiedCss = generateModifiedCss(fileContent, colors);
-
+		const colors = extractColorsWithoutVariableGeneration(fileContent, fileId);
 		const existingVariables = new Set<string>();
+
 		Object.values(colors).forEach((color) => {
 			if (color.isExisting && color.variable) {
 				existingVariables.add(color.variable);
@@ -261,13 +267,15 @@ export async function processCssFile(
 
 		Object.keys(colors).forEach((key) => {
 			const color = colors[key];
-			if (!color.isExisting || !color.variable) {
+			if (!color.variable) {
 				color.variable = generateSemanticVariableName(
 					color.value,
 					existingVariables,
 				);
 			}
 		});
+
+		const modifiedCss = generateModifiedCss(fileContent, colors);
 
 		const combinedVariablesCss = generateCssWithVariables(colors);
 
